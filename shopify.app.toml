@@ -1,4 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+#
+# Sprayer Depot — Vendor MAP Pricing (custom app, single store).
+# `client_id` / `application_url` are managed by `shopify app dev` / `link`.
 
 client_id = "ebb28b4dd7e0d36afb421a640621992b"
 name = "sprayer-vendor-map"
@@ -6,8 +9,12 @@ application_url = "https://example.com"
 embedded = true
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products"
+# Read the catalog to list variants; write to update actual_price / map_enabled metafields.
+# The Cart Transform Function declares its own access in extensions/cart-transform (Phase 3).
+scopes = "read_products,write_products"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
 
 [webhooks]
 api_version = "2026-07"
@@ -20,8 +27,44 @@ api_version = "2026-07"
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
 
-[auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+  # Mandatory GDPR / privacy compliance webhooks (required even for custom apps).
+  # Subscribed via `compliance_topics`; each handler validates HMAC, logs, and 200s.
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
+
+# ---------------------------------------------------------------------------
+# App-owned (declarative) metafield definitions.
+#
+# The `app` segment is Shopify's reserved namespace and resolves to `$app`
+# (`app--{id}`) at runtime — this is what grants the Cart Transform Function
+# implicit read access. TOML cannot express a sub-namespace (e.g. `$app:vendor_map`),
+# so the namespace is the bare `$app` with the keys below.
+#
+# `variant` maps to MetafieldOwnerType PRODUCTVARIANT.
+# These are installed/updated on `shopify app deploy` (and on dev sync).
+# Note: `variant.price` IS the MAP — we do not duplicate it as a metafield.
+# ---------------------------------------------------------------------------
+
+[variant.metafields.app.actual_price]
+name = "Actual price"
+description = "Charged price after the cart transform (the actual, lower price). variant.price stays the advertised MAP."
+type = "money"
+access.admin = "merchant_read_write"
+
+[variant.metafields.app.map_enabled]
+name = "MAP enabled"
+description = "Per-variant kill switch. When true (and actual_price < MAP), the cart transform applies the lower price."
+type = "boolean"
+access.admin = "merchant_read_write"
 
 [build]
 include_config_on_deploy = true
