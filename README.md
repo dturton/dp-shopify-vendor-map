@@ -44,7 +44,8 @@ sprayer-vendor-map/
 │   │   ├── metafields.server.ts  # $app keys, read/scan/export, metafieldsSet/Delete
 │   │   ├── csv.server.ts         # CSV (de)serialize + export builder
 │   │   ├── csvImport.server.ts   # parse/validate/diff import rows
-│   │   └── bulkImport.server.ts  # >200-row bulkOperationRunMutation path
+│   │   ├── bulkImport.server.ts  # >200-row bulkOperationRunMutation path
+│   │   └── cartTransform.server.ts # idempotent cartTransformCreate activation
 │   └── routes/
 │       ├── app._index.tsx        # overview
 │       ├── app.variants.tsx      # editable variant list (inline + bulk actions)
@@ -57,7 +58,10 @@ sprayer-vendor-map/
 │       ├── webhooks.customers.redact.tsx          # GDPR
 │       └── webhooks.shop.redact.tsx               # GDPR
 └── extensions/
-    └── cart-transform/         # Phase 3 (not yet scaffolded)
+    └── cart-transform/         # Cart Transform Function (TypeScript → wasm)
+        ├── shopify.extension.toml
+        ├── src/cart_transform_run.graphql
+        └── src/cart_transform_run.ts
 ```
 
 ## Metafield definitions & the `$app` namespace
@@ -168,13 +172,23 @@ Then update `application_url` / redirect URLs to the Fly URL and run
 
 ## Cart Transform caveats (Phase 3)
 
+- **Shopify Plus required** for the price override. `lineUpdate` (price `update`)
+  operations only apply on stores on the Shopify Plus plan — confirm Sprayer
+  Depot's plan. The function still installs/activates on non-Plus; it just won't
+  change prices.
 - Cart Transform only affects **customer-facing carts**. **Draft Orders** and
   admin-created orders are **not** transformed — this is a platform limitation,
   not worked around.
 - There is **one active Cart Transform per shop**. Don't create a second one;
   merge logic into the existing function.
-- The function has an ~11ms compute budget — its input query must select only
-  what it needs (`merchandise.id`, `price`, both metafields).
+- The function has an ~11ms compute budget — its input query selects only what
+  it needs (line `cost`, `merchandise.id`, `isGiftCard`, both metafields,
+  `presentmentCurrencyRate`).
+- **Multi-currency:** `fixedPricePerUnit.amount` is in *presentment* currency, so
+  `actual_price` (shop currency) is multiplied by `presentmentCurrencyRate`.
+- **Activation:** runs automatically on install (`afterAuth`, idempotent) once the
+  function is deployed; otherwise activate from **Settings → Cart Transform**.
+  Requires `shopify app deploy` first so the `cart-transform` function exists.
 
 ## Phase 1 — done
 
@@ -222,12 +236,28 @@ Read-only foundation:
 > (staged upload + `bulkOperationRunMutation` + poll) is implemented to Shopify's
 > docs but could not be exercised in development. Test it against the real store.
 
-## Phase 3 — Cart Transform Function (TODO)
+## Phase 3 — Cart Transform Function — done
 
-- [ ] `shopify app generate extension --type cart_transform --template typescript`
-- [ ] `src/run.graphql`: cart lines → `merchandise.id`, `price`, both metafields
-- [ ] `src/run.ts`: emit per-unit `price_adjustment` to `actual_price` when
-      `map_enabled` is true **and** `actual_price` < `variant.price`; else no-op
-- [ ] Activate via `cartTransformCreate` (idempotent — query existing first)
-- [ ] Multi-currency safe; skip gift card line items
+- [x] `extensions/cart-transform` (TypeScript), target `cart.transform.run`
+- [x] `src/cart_transform_run.graphql`: line `cost`, `merchandise` (id, `isGiftCard`,
+      `$app` `actual_price` + `map_enabled`), `presentmentCurrencyRate`
+- [x] `src/cart_transform_run.ts`: per-unit `lineUpdate` → `fixedPricePerUnit` =
+      `actual_price` (converted to presentment) when `map_enabled` is true,
+      `actual_price` is set, and it's below the current MAP; else no-op
+- [x] Idempotent activation via `cartTransformCreate(functionHandle)` —
+      `afterAuth` + Settings fallback
+- [x] Multi-currency via `presentmentCurrencyRate`; gift cards skipped
+- [x] Tests (vitest) build the wasm and assert apply / skip-disabled / skip-gift-card
+
+Build/test the function locally:
+
+```bash
+cd extensions/cart-transform
+npm run typegen      # regenerate generated/api.ts from the schema + query
+npm run build        # compile to dist/function.wasm
+npm test             # run the wasm against tests/fixtures
 ```
+
+> **Not yet verified on a live store:** activation (`cartTransformCreate`) and the
+> in-cart price swap need a real store (and Shopify Plus for price overrides).
+> The function logic itself is verified via the wasm test fixtures above.
