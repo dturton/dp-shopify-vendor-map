@@ -1,0 +1,37 @@
+# Fly.io configuration for the Sprayer Depot Vendor MAP app.
+#
+# Not deployed yet — provided so hosting is Fly-ready. Before `fly deploy`:
+#   1. Set `app` below (or run `fly launch --no-deploy` to generate it).
+#   2. Provision Postgres and attach it:
+#        fly postgres create
+#        fly postgres attach <pg-app-name>   # sets DATABASE_URL secret
+#   3. Set Shopify secrets:
+#        fly secrets set SHOPIFY_API_KEY=... SHOPIFY_API_SECRET=... \
+#          SHOPIFY_APP_URL=https://<app>.fly.dev SCOPES=read_products,write_products
+#   4. Point the app's application_url / redirect URLs (shopify.app.toml) at the
+#      Fly URL and `shopify app deploy`.
+
+app = "sprayer-vendor-map"
+primary_region = "iad"
+
+[build]
+  # Uses the multi-stage Dockerfile in this directory.
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+
+# Run database migrations before each release goes live.
+[deploy]
+  release_command = "npx prisma migrate deploy"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

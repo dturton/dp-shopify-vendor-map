@@ -1,352 +1,202 @@
-# Shopify App Template - Remix
+# Sprayer Depot — Vendor MAP Pricing
 
-> [!NOTE]
-> **Remix is now React Router.** As of [React Router v7](https://remix.run/blog/merging-remix-and-react-router), Remix and React Router have merged.
-> 
-> For new projects, use the **[Shopify App Template - React Router](https://github.com/Shopify/shopify-app-template-react-router)** instead.
-> 
-> To migrate your existing Remix app, follow the **[migration guide](https://github.com/Shopify/shopify-app-template-react-router/wiki/Upgrading-from-Remix)**.
+A Shopify **custom app** for Sprayer Depot that manages **Minimum Advertised
+Price (MAP)** compliance. Admins manage a per-variant *actual price*; a Cart
+Transform Function (Phase 3) swaps the advertised MAP for the lower actual price
+once an item is in the cart — so the storefront keeps showing the MAP while the
+customer is charged less at checkout.
 
-This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using the [Remix](https://remix.run) framework.
+## How pricing is modeled
 
-Rather than cloning this repo, you can use your preferred package manager and the Shopify CLI with [these steps](https://shopify.dev/docs/apps/getting-started/create).
+| Concept            | Where it lives                                  |
+| ------------------ | ----------------------------------------------- |
+| Advertised MAP     | `variant.price` (the catalog price — unchanged) |
+| Charged price      | `actual_price` variant metafield (`money`)      |
+| Per-variant toggle | `map_enabled` variant metafield (`boolean`)     |
+| Strikethrough      | Theme-side (`original_line_price` vs `final_line_price`) |
 
-Visit the [`shopify.dev` documentation](https://shopify.dev/docs/api/shopify-app-remix) for more details on the Remix app package.
+- **Absolute prices**, not percentages.
+- **All customers** get the discount (no B2B gating, no tag filtering).
+- `compareAtPrice` is **never** touched — strikethrough is the theme's job.
+- There is **no** `map_price` metafield: `variant.price` *is* the MAP.
 
-## Quick start
+## Stack
 
-### Prerequisites
+- Remix + TypeScript (`@shopify/shopify-app-remix`), strict mode
+- Polaris + App Bridge React (embedded admin)
+- Prisma + **PostgreSQL** (session storage + `CsvJob` tracking)
+- Cart Transform Function (TypeScript → WASM) — Phase 3
+- `@shopify/cli` for dev/deploy; hosting target **Fly.io**
 
-Before you begin, you'll need the following:
-
-1. **Node.js**: [Download and install](https://nodejs.org/en/download/) it if you haven't already.
-2. **Shopify Partner Account**: [Create an account](https://partners.shopify.com/signup) if you don't have one.
-3. **Test Store**: Set up either a [development store](https://help.shopify.com/en/partners/dashboard/development-stores#create-a-development-store) or a [Shopify Plus sandbox store](https://help.shopify.com/en/partners/dashboard/managing-stores/plus-sandbox-store) for testing your app.
-4. **Shopify CLI**: [Download and install](https://shopify.dev/docs/apps/tools/cli/getting-started) it if you haven't already.
-```shell
-npm install -g @shopify/cli@latest
-```
-
-### Setup
-
-```shell
-shopify app init --template=https://github.com/Shopify/shopify-app-template-remix
-```
-
-### Local Development
-
-```shell
-shopify app dev
-```
-
-
-
-Local development is powered by [the Shopify CLI](https://shopify.dev/docs/apps/tools/cli). It logs into your partners account, connects to an app, provides environment variables, updates remote config, creates a tunnel and provides commands to generate extensions.
-
-### Authenticating and querying data
-
-To authenticate and query data you can use the `shopify` const that is exported from `/app/shopify.server.js`:
-
-```js
-export async function loader({ request }) {
-  const { admin } = await shopify.authenticate.admin(request);
-
-  const response = await admin.graphql(`
-    {
-      products(first: 25) {
-        nodes {
-          title
-          description
-        }
-      }
-    }`);
-
-  const {
-    data: {
-      products: { nodes },
-    },
-  } = await response.json();
-
-  return nodes;
-}
-```
-
-This template comes preconfigured with examples of:
-
-1. Setting up your Shopify app in [/app/shopify.server.ts](https://github.com/Shopify/shopify-app-template-remix/blob/main/app/shopify.server.ts)
-2. Querying data using Graphql. Please see: [/app/routes/app.\_index.tsx](https://github.com/Shopify/shopify-app-template-remix/blob/main/app/routes/app._index.tsx).
-3. Responding to webhooks in individual files such as [/app/routes/webhooks.app.uninstalled.tsx](https://github.com/Shopify/shopify-app-template-remix/blob/main/app/routes/webhooks.app.uninstalled.tsx) and [/app/routes/webhooks.app.scopes_update.tsx](https://github.com/Shopify/shopify-app-template-remix/blob/main/app/routes/webhooks.app.scopes_update.tsx)
-
-Please read the [documentation for @shopify/shopify-app-remix](https://www.npmjs.com/package/@shopify/shopify-app-remix#authenticating-admin-requests) to understand what other API's are available.
-
-## Deployment
-
-### Application Storage
-
-This template uses [Prisma](https://www.prisma.io/) to store session data, by default using an [SQLite](https://www.sqlite.org/index.html) database.
-The database is defined as a Prisma schema in `prisma/schema.prisma`.
-
-This use of SQLite works in production if your app runs as a single instance.
-The database that works best for you depends on the data your app needs and how it is queried.
-You can run your database of choice on a server yourself or host it with a SaaS company.
-Here's a short list of databases providers that provide a free tier to get started:
-
-| Database   | Type             | Hosters                                                                                                                                                                                                                               |
-| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MySQL      | SQL              | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-mysql), [Planet Scale](https://planetscale.com/), [Amazon Aurora](https://aws.amazon.com/rds/aurora/), [Google Cloud SQL](https://cloud.google.com/sql/docs/mysql) |
-| PostgreSQL | SQL              | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-postgresql), [Amazon Aurora](https://aws.amazon.com/rds/aurora/), [Google Cloud SQL](https://cloud.google.com/sql/docs/postgres)                                   |
-| Redis      | Key-value        | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-redis), [Amazon MemoryDB](https://aws.amazon.com/memorydb/)                                                                                                        |
-| MongoDB    | NoSQL / Document | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-mongodb), [MongoDB Atlas](https://www.mongodb.com/atlas/database)                                                                                                  |
-
-To use one of these, you can use a different [datasource provider](https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#datasource) in your `schema.prisma` file, or a different [SessionStorage adapter package](https://github.com/Shopify/shopify-api-js/blob/main/packages/shopify-api/docs/guides/session-storage.md).
-
-### Build
-
-Remix handles building the app for you, by running the command below with the package manager of your choice:
-
-Using yarn:
-
-```shell
-yarn build
-```
-
-Using npm:
-
-```shell
-npm run build
-```
-
-Using pnpm:
-
-```shell
-pnpm run build
-```
-
-## Hosting
-
-When you're ready to set up your app in production, you can follow [our deployment documentation](https://shopify.dev/docs/apps/deployment/web) to host your app on a cloud provider like [Heroku](https://www.heroku.com/) or [Fly.io](https://fly.io/).
-
-When you reach the step for [setting up environment variables](https://shopify.dev/docs/apps/deployment/web#set-env-vars), you also need to set the variable `NODE_ENV=production`.
-
-### Hosting on Vercel
-
-Using the Vercel Preset is recommended when hosting your Shopify Remix app on Vercel. You'll also want to ensure imports that would normally come from `@remix-run/node` are imported from `@vercel/remix` instead. Learn more about hosting Remix apps on Vercel [here](https://vercel.com/docs/frameworks/remix).
-
-```diff
-// vite.config.ts
-import { vitePlugin as remix } from "@remix-run/dev";
-import { defineConfig, type UserConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
-+ import { vercelPreset } from '@vercel/remix/vite';
-
-installGlobals();
-
-export default defineConfig({
-  plugins: [
-    remix({
-      ignoredRouteFiles: ["**/.*"],
-+     presets: [vercelPreset()],
-    }),
-    tsconfigPaths(),
-  ],
-});
-```
-
-## Troubleshooting
-
-### Database tables don't exist
-
-If you get this error:
+## Repo layout
 
 ```
-The table `main.Session` does not exist in the current database.
+sprayer-vendor-map/
+├── shopify.app.toml            # scopes, webhooks, app-owned metafield definitions
+├── shopify.web.toml
+├── fly.toml                    # Fly.io config (not deployed yet)
+├── Dockerfile                  # multi-stage, Node 22
+├── prisma/schema.prisma        # Session + CsvJob (Postgres)
+├── app/
+│   ├── shopify.server.ts       # shopifyApp(): SingleMerchant distribution
+│   ├── db.server.ts
+│   ├── lib/
+│   │   └── metafields.server.ts  # $app namespace/keys + getVariantsPage()
+│   └── routes/
+│       ├── app._index.tsx        # overview
+│       ├── app.variants.tsx      # Phase 1: read-only variant list
+│       ├── app.settings.tsx
+│       ├── webhooks.app.uninstalled.tsx
+│       ├── webhooks.app.scopes_update.tsx
+│       ├── webhooks.customers.data_request.tsx   # GDPR
+│       ├── webhooks.customers.redact.tsx          # GDPR
+│       └── webhooks.shop.redact.tsx               # GDPR
+└── extensions/
+    └── cart-transform/         # Phase 3 (not yet scaffolded)
 ```
 
-You need to create the database for Prisma. Run the `setup` script in `package.json` using your preferred package manager.
+## Metafield definitions & the `$app` namespace
 
-### Navigating/redirecting breaks an embedded app
+The two variant metafields are declared **declaratively** in `shopify.app.toml`
+(`[variant.metafields.app.*]`) and installed/updated on `shopify app deploy`.
+Being in the reserved **`$app`** namespace makes them app-owned, which is what
+grants the Cart Transform Function its *implicit* read access.
 
-Embedded Shopify apps must maintain the user session, which can be tricky inside an iFrame. To avoid issues:
+> **Note / deviation from the original spec.** The spec called for the
+> `$app:vendor_map` *sub-namespace*. TOML declarative definitions only support
+> the bare `app` namespace (sub-namespaces aren't expressible in TOML), so the
+> runtime namespace is `$app` with keys `actual_price` / `map_enabled`. This is
+> functionally equivalent for implicit function access. To use a sub-namespace
+> you would have to create the definitions at runtime via `metafieldDefinitionCreate`
+> instead. See [declarative custom data definitions](https://shopify.dev/docs/apps/build/custom-data/declarative-custom-data-definitions).
 
-1. Use `Link` from `@remix-run/react` or `@shopify/polaris`. Do not use `<a>`.
-2. Use the `redirect` helper returned from `authenticate.admin`. Do not use `redirect` from `@remix-run/node`
-3. Use `useSubmit` or `<Form/>` from `@remix-run/react`. Do not use a lowercase `<form/>`.
+After install, the definitions appear under **Settings → Custom data → Variants**
+in the Shopify admin.
 
-This only applies if your app is embedded, which it will be by default.
+## Prerequisites
 
-### Non Embedded
+- Node `>=20.19 <22 || >=22.12` (CI/Docker use Node 22)
+- A PostgreSQL database (local for dev; Fly Postgres / managed PG for prod)
+- A Shopify Partner account with access to the Sprayer Depot store
+- `@shopify/cli` (bundled as a dependency; `npm run shopify`)
 
-Shopify apps are best when they are embedded in the Shopify Admin, which is how this template is configured. If you have a reason to not embed your app please make the following changes:
+## Environment variables
 
-1. Ensure `embedded = false` is set in [shopify.app.toml`](./shopify.app.toml). [Docs here](https://shopify.dev/docs/apps/build/cli-for-apps/app-configuration#global).
-2. Pass `isEmbeddedApp: false` to `shopifyApp()` in `./app/shopify.server.js|ts`.
-3. Change the `isEmbeddedApp` prop to `isEmbeddedApp={false}` for the `AppProvider` in `/app/routes/app.jsx|tsx`.
-4. Remove the `@shopify/app-bridge-react` dependency from [package.json](./package.json) and `vite.config.ts|js`.
-5. Remove anything imported from `@shopify/app-bridge-react`.  For example: `NavMenu`, `TitleBar` and `useAppBridge`.
+Copy `.env.example` → `.env` and fill in. `.env` is gitignored.
 
-### OAuth goes into a loop when I change my app's scopes
+| Variable              | Required | Notes                                                                 |
+| --------------------- | -------- | --------------------------------------------------------------------- |
+| `DATABASE_URL`        | yes      | Postgres connection string (Prisma).                                  |
+| `SHOPIFY_API_KEY`     | dev: no  | Injected by `shopify app dev`. Set manually in production.            |
+| `SHOPIFY_API_SECRET`  | dev: no  | Injected by `shopify app dev`. Set manually in production.            |
+| `SHOPIFY_APP_URL`     | dev: no  | Injected by `shopify app dev`. Set to the Fly URL in production.      |
+| `SCOPES`              | yes\*    | `read_products,write_products` (must match `shopify.app.toml`).       |
+| `SHOP_CUSTOM_DOMAIN`  | no       | Optional custom shop domain for local testing.                        |
 
-If you change your app's scopes and authentication goes into a loop and fails with a message from Shopify that it tried too many times, you might have forgotten to update your scopes with Shopify.
-To do that, you can run the `deploy` CLI command.
+\* The CLI injects `SCOPES` during `dev`; set it yourself when self-hosting.
 
-Using yarn:
+## Local development
 
-```shell
-yarn deploy
+1. **Start Postgres.** For example, with Docker:
+
+   ```bash
+   docker run --name sprayer-pg -e POSTGRES_PASSWORD=postgres \
+     -e POSTGRES_DB=sprayer_vendor_map -p 5432:5432 -d postgres:16
+   ```
+
+   Then set `DATABASE_URL` in `.env` (see `.env.example`).
+
+2. **Apply migrations** (also run automatically by `shopify app dev`):
+
+   ```bash
+   npm run setup        # prisma generate && prisma migrate deploy
+   ```
+
+3. **Run the app:**
+
+   ```bash
+   npm run dev          # shopify app dev
+   ```
+
+   The CLI prompts you to log in, select the Partner org, and connect/create the
+   app. It injects `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `SHOPIFY_APP_URL`,
+   and `SCOPES`, then opens a tunnel and an install link for your dev store.
+
+### Useful scripts
+
+| Script               | What it does                          |
+| -------------------- | ------------------------------------- |
+| `npm run dev`        | `shopify app dev`                     |
+| `npm run build`      | Production build (`remix vite:build`) |
+| `npm run lint`       | ESLint                                |
+| `npm run typecheck`  | `tsc --noEmit`                        |
+| `npm run setup`      | `prisma generate && migrate deploy`   |
+| `npm run deploy`     | `shopify app deploy` (config + extensions) |
+
+## Installing on Sprayer Depot's store (custom distribution)
+
+This is a **custom app** (single merchant), not an App Store listing.
+
+1. In the **Partner Dashboard** → the app → **Distribution**, choose **Custom
+   distribution** and enter the Sprayer Depot store domain.
+2. Generate the **install link** and open it as a store admin to install.
+3. On install, the app requests `read_products,write_products`, and the metafield
+   definitions are created (via `shopify app deploy` of the config).
+4. Verify under **Settings → Custom data → Variants** that `Actual price` and
+   `MAP enabled` definitions exist.
+
+## Deploying to Fly.io (not done yet)
+
+`fly.toml` and the `Dockerfile` are Fly-ready. When you're ready:
+
+```bash
+fly launch --no-deploy            # or reuse the included fly.toml
+fly postgres create
+fly postgres attach <pg-app>      # sets DATABASE_URL
+fly secrets set SHOPIFY_API_KEY=... SHOPIFY_API_SECRET=... \
+  SHOPIFY_APP_URL=https://<app>.fly.dev SCOPES=read_products,write_products
+fly deploy                        # release_command runs `prisma migrate deploy`
 ```
 
-Using npm:
+Then update `application_url` / redirect URLs to the Fly URL and run
+`shopify app deploy`.
 
-```shell
-npm run deploy
+## Cart Transform caveats (Phase 3)
+
+- Cart Transform only affects **customer-facing carts**. **Draft Orders** and
+  admin-created orders are **not** transformed — this is a platform limitation,
+  not worked around.
+- There is **one active Cart Transform per shop**. Don't create a second one;
+  merge logic into the existing function.
+- The function has an ~11ms compute budget — its input query must select only
+  what it needs (`merchandise.id`, `price`, both metafields).
+
+## Phase 1 — done
+
+Read-only foundation:
+
+- [x] Remix + TS scaffold, `read_products,write_products`, SingleMerchant
+- [x] Postgres Prisma schema (`Session`, `CsvJob`)
+- [x] App-owned variant metafield definitions (`$app`, declarative TOML)
+- [x] GDPR + uninstall webhooks
+- [x] Read-only variants `IndexTable` (50/page, cursor pagination)
+
+## Phase 2 — bulk admin UI (TODO)
+
+- [ ] Inline-editable cells: `actual_price` input + `map_enabled` toggle
+- [ ] Bulk save via `metafieldsSet` (chunk to **25 per call**)
+- [ ] Filters: vendor, collection, "missing actual_price", "discount > X%"
+- [ ] Bulk actions: apply X% off MAP, clear actual_price, copy MAP → actual_price
+- [ ] CSV import (preview diff → confirm; `bulkOperationRunMutation` JSONL for
+      >200 rows; track via `CsvJob`)
+- [ ] CSV export: variant id, SKU, vendor, MAP, actual_price, computed % off
+
+## Phase 3 — Cart Transform Function (TODO)
+
+- [ ] `shopify app generate extension --type cart_transform --template typescript`
+- [ ] `src/run.graphql`: cart lines → `merchandise.id`, `price`, both metafields
+- [ ] `src/run.ts`: emit per-unit `price_adjustment` to `actual_price` when
+      `map_enabled` is true **and** `actual_price` < `variant.price`; else no-op
+- [ ] Activate via `cartTransformCreate` (idempotent — query existing first)
+- [ ] Multi-currency safe; skip gift card line items
 ```
-
-Using pnpm:
-
-```shell
-pnpm run deploy
-```
-
-### My shop-specific webhook subscriptions aren't updated
-
-If you are registering webhooks in the `afterAuth` hook, using `shopify.registerWebhooks`, you may find that your subscriptions aren't being updated.  
-
-Instead of using the `afterAuth` hook, the recommended approach is to declare app-specific webhooks in the `shopify.app.toml` file.  This approach is easier since Shopify will automatically update changes to webhook subscriptions every time you run `deploy` (e.g: `npm run deploy`).  Please read these guides to understand more:
-
-1. [app-specific vs shop-specific webhooks](https://shopify.dev/docs/apps/build/webhooks/subscribe#app-specific-subscriptions)
-2. [Create a subscription tutorial](https://shopify.dev/docs/apps/build/webhooks/subscribe/get-started?framework=remix&deliveryMethod=https)
-
-If you do need shop-specific webhooks, please keep in mind that the package calls `afterAuth` in 2 scenarios:
-
-- After installing the app
-- When an access token expires
-
-During normal development, the app won't need to re-authenticate most of the time, so shop-specific subscriptions aren't updated. To force your app to update the subscriptions, you can uninstall and reinstall it in your development store. That will force the OAuth process and call the `afterAuth` hook.
-
-### Admin created webhook failing HMAC validation
-
-Webhooks subscriptions created in the [Shopify admin](https://help.shopify.com/en/manual/orders/notifications/webhooks) will fail HMAC validation. This is because the webhook payload is not signed with your app's secret key.  There are 2 solutions:
-
-1. Use [app-specific webhooks](https://shopify.dev/docs/apps/build/webhooks/subscribe#app-specific-subscriptions) defined in your toml file instead (recommended)
-2. Create [webhook subscriptions](https://shopify.dev/docs/api/shopify-app-remix/v1/guide-webhooks) using the `shopifyApp` object.
-
-Test your webhooks with the [Shopify CLI](https://shopify.dev/docs/apps/tools/cli/commands#webhook-trigger) or by triggering events manually in the Shopify admin(e.g. Updating the product title to trigger a `PRODUCTS_UPDATE`).
-
-### Incorrect GraphQL Hints
-
-By default the [graphql.vscode-graphql](https://marketplace.visualstudio.com/items?itemName=GraphQL.vscode-graphql) extension for VS Code will assume that GraphQL queries or mutations are for the [Shopify Admin API](https://shopify.dev/docs/api/admin). This is a sensible default, but it may not be true if:
-
-1. You use another Shopify API such as the storefront API.
-2. You use a third party GraphQL API.
-
-in this situation, please update the [.graphqlrc.ts](https://github.com/Shopify/shopify-app-template-remix/blob/main/.graphqlrc.ts) config.
-
-### First parameter has member 'readable' that is not a ReadableStream.
-
-See [hosting on Vercel](#hosting-on-vercel).
-
-### Admin object undefined on webhook events triggered by the CLI
-
-When you trigger a webhook event using the Shopify CLI, the `admin` object will be `undefined`. This is because the CLI triggers an event with a valid, but non-existent, shop. The `admin` object is only available when the webhook is triggered by a shop that has installed the app.
-
-Webhooks triggered by the CLI are intended for initial experimentation testing of your webhook configuration. For more information on how to test your webhooks, see the [Shopify CLI documentation](https://shopify.dev/docs/apps/tools/cli/commands#webhook-trigger).
-
-### Using Defer & await for streaming responses
-
-To test [streaming using defer/await](https://remix.run/docs/en/main/guides/streaming) during local development you'll need to use the Shopify CLI slightly differently:
-
-1. First setup ngrok: https://ngrok.com/product/secure-tunnels
-2. Create an ngrok tunnel on port 8080: `ngrok http 8080`.
-3. Copy the forwarding address. This should be something like: `https://f355-2607-fea8-bb5c-8700-7972-d2b5-3f2b-94ab.ngrok-free.app`
-4. In a separate terminal run `yarn shopify app dev --tunnel-url=TUNNEL_URL:8080` replacing `TUNNEL_URL` for the address you copied in step 3.
-
-By default the CLI uses a cloudflare tunnel. Unfortunately it cloudflare tunnels wait for the Response stream to finish, then sends one chunk.
-
-This will not affect production, since tunnels are only for local development.
-
-### Using MongoDB and Prisma
-
-By default this template uses SQLlite as the database. It is recommended to move to a persisted database for production. If you choose to use MongoDB, you will need to make some modifications to the schema and prisma configuration. For more information please see the [Prisma MongoDB documentation](https://www.prisma.io/docs/orm/overview/databases/mongodb).
-
-Alternatively you can use a MongDB database directly with the [MongoDB session storage adapter](https://github.com/Shopify/shopify-app-js/tree/main/packages/apps/session-storage/shopify-app-session-storage-mongodb).
-
-#### Mapping the id field
-
-In MongoDB, an ID must be a single field that defines an @id attribute and a @map("\_id") attribute.
-The prisma adapter expects the ID field to be the ID of the session, and not the \_id field of the document.
-
-To make this work you can add a new field to the schema that maps the \_id field to the id field. For more information see the [Prisma documentation](https://www.prisma.io/docs/orm/prisma-schema/data-model/models#defining-an-id-field)
-
-```prisma
-model Session {
-  session_id  String    @id @default(auto()) @map("_id") @db.ObjectId
-  id          String    @unique
-...
-}
-```
-
-#### Error: The "mongodb" provider is not supported with this command
-
-MongoDB does not support the [prisma migrate](https://www.prisma.io/docs/orm/prisma-migrate/understanding-prisma-migrate/overview) command. Instead, you can use the [prisma db push](https://www.prisma.io/docs/orm/reference/prisma-cli-reference#db-push) command and update the `shopify.web.toml` file with the following commands. If you are using MongoDB please see the [Prisma documentation](https://www.prisma.io/docs/orm/overview/databases/mongodb) for more information.
-
-```toml
-[commands]
-predev = "npx prisma generate && npx prisma db push"
-dev = "npm exec remix vite:dev"
-```
-
-#### Prisma needs to perform transactions, which requires your mongodb server to be run as a replica set
-
-See the [Prisma documentation](https://www.prisma.io/docs/getting-started/setup-prisma/start-from-scratch/mongodb/connect-your-database-node-mongodb) for connecting to a MongoDB database.
-
-### I want to use Polaris v13.0.0 or higher
-
-Currently, this template is set up to work on node v18.20 or higher. However, `@shopify/polaris` is limited to v12 because v13 can only run on node v20+.
-
-You don't have to make any changes to the code in order to be able to upgrade Polaris to v13, but you'll need to do the following:
-
-- Upgrade your node version to v20.10 or higher.
-- Update your `Dockerfile` to pull `FROM node:20-alpine` instead of `node:18-alpine`
-
-### "nbf" claim timestamp check failed
-
-This error will occur of the `nbf` claim timestamp check failed. This is because the JWT token is expired.
-If you  are consistently getting this error, it could be that the clock on your machine is not in sync with the server.
-
-To fix this ensure you have enabled `Set time and date automatically` in the `Date and Time` settings on your computer.
-
-## Benefits
-
-Shopify apps are built on a variety of Shopify tools to create a great merchant experience.
-
-<!-- TODO: Uncomment this after we've updated the docs -->
-<!-- The [create an app](https://shopify.dev/docs/apps/getting-started/create) tutorial in our developer documentation will guide you through creating a Shopify app using this template. -->
-
-The Remix app template comes with the following out-of-the-box functionality:
-
-- [OAuth](https://github.com/Shopify/shopify-app-js/tree/main/packages/shopify-app-remix#authenticating-admin-requests): Installing the app and granting permissions
-- [GraphQL Admin API](https://github.com/Shopify/shopify-app-js/tree/main/packages/shopify-app-remix#using-the-shopify-admin-graphql-api): Querying or mutating Shopify admin data
-- [Webhooks](https://github.com/Shopify/shopify-app-js/tree/main/packages/shopify-app-remix#authenticating-webhook-requests): Callbacks sent by Shopify when certain events occur
-- [AppBridge](https://shopify.dev/docs/api/app-bridge): This template uses the next generation of the Shopify App Bridge library which works in unison with previous versions.
-- [Polaris](https://polaris.shopify.com/): Design system that enables apps to create Shopify-like experiences
-
-## Tech Stack
-
-This template uses [Remix](https://remix.run). The following Shopify tools are also included to ease app development:
-
-- [Shopify App Remix](https://shopify.dev/docs/api/shopify-app-remix) provides authentication and methods for interacting with Shopify APIs.
-- [Shopify App Bridge](https://shopify.dev/docs/apps/tools/app-bridge) allows your app to seamlessly integrate your app within Shopify's Admin.
-- [Polaris React](https://polaris.shopify.com/) is a powerful design system and component library that helps developers build high quality, consistent experiences for Shopify merchants.
-- [Webhooks](https://github.com/Shopify/shopify-app-js/tree/main/packages/shopify-app-remix#authenticating-webhook-requests): Callbacks sent by Shopify when certain events occur
-- [Polaris](https://polaris.shopify.com/): Design system that enables apps to create Shopify-like experiences
-
-## Resources
-
-- [Remix Docs](https://remix.run/docs/en/v1)
-- [Shopify App Remix](https://shopify.dev/docs/api/shopify-app-remix)
-- [Introduction to Shopify apps](https://shopify.dev/docs/apps/getting-started)
-- [App authentication](https://shopify.dev/docs/apps/auth)
-- [Shopify CLI](https://shopify.dev/docs/apps/tools/cli)
-- [App extensions](https://shopify.dev/docs/apps/app-extensions/list)
-- [Shopify Functions](https://shopify.dev/docs/api/functions)
-- [Getting started with internationalizing your app](https://shopify.dev/docs/apps/best-practices/internationalization/getting-started)
