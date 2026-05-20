@@ -4,12 +4,16 @@ import { useFetcher, useLoaderData, useNavigate } from "@remix-run/react";
 import {
   Banner,
   BlockStack,
+  Button,
   Card,
   Checkbox,
   EmptyState,
   IndexTable,
+  InlineGrid,
+  InlineStack,
   Modal,
   Page,
+  Select,
   Text,
   TextField,
   Thumbnail,
@@ -20,9 +24,12 @@ import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
 import {
+  buildVariantSearch,
+  getCollectionsForFilter,
   getShopCurrency,
   getVariantsPage,
   saveVariantPricing,
+  scanVariants,
   VARIANTS_PAGE_SIZE,
   type PageDirection,
   type SaveUserError,
@@ -30,20 +37,79 @@ import {
   type VariantRow,
 } from "../lib/metafields.server";
 
+const EMPTY_PAGE_INFO = {
+  hasNextPage: false,
+  hasPreviousPage: false,
+  startCursor: null,
+  endCursor: null,
+};
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
-
   const url = new URL(request.url);
+
+  const vendor = url.searchParams.get("vendor")?.trim() ?? "";
+  const collectionId = url.searchParams.get("collection")?.trim() ?? "";
+  const missing = url.searchParams.get("missing") === "1";
+  const minDiscountRaw = Number(url.searchParams.get("minDiscount") ?? "0");
+  const minDiscount = Number.isFinite(minDiscountRaw) ? minDiscountRaw : 0;
+
+  const search = buildVariantSearch({ vendor, collectionId });
+  const collections = await getCollectionsForFilter(admin);
+  const filters = {
+    vendor,
+    collectionId,
+    missing,
+    minDiscount: minDiscount > 0 ? String(minDiscount) : "",
+  };
+
+  // Metafield-derived filters require an in-memory scan (Shopify can't search
+  // them server-side); vendor/collection narrow the scan.
+  if (missing || minDiscount > 0) {
+    const result = await scanVariants(
+      admin,
+      { missingActualPrice: missing, minDiscountPercent: minDiscount },
+      search,
+    );
+    return {
+      currencyCode: result.currencyCode,
+      rows: result.rows,
+      pageInfo: EMPTY_PAGE_INFO,
+      collections,
+      filters,
+      scan: {
+        scanned: result.scanned,
+        matched: result.matched,
+        scanCapped: result.scanCapped,
+        displayCapped: result.displayCapped,
+      },
+    };
+  }
+
   const after = url.searchParams.get("after");
   const before = url.searchParams.get("before");
   const direction: PageDirection = before ? "previous" : "next";
   const cursor = before ?? after ?? null;
-
-  return getVariantsPage(admin, {
+  const page = await getVariantsPage(admin, {
     direction,
     cursor,
     pageSize: VARIANTS_PAGE_SIZE,
+    search,
   });
+
+  return {
+    currencyCode: page.currencyCode,
+    rows: page.rows,
+    pageInfo: page.pageInfo,
+    collections,
+    filters,
+    scan: null as null | {
+      scanned: number;
+      matched: number;
+      scanCapped: boolean;
+      displayCapped: boolean;
+    },
+  };
 };
 
 interface ActionData {
@@ -119,7 +185,8 @@ function CellInput({ children }: { children: ReactNode }) {
 }
 
 export default function VariantsRoute() {
-  const { currencyCode, rows, pageInfo } = useLoaderData<typeof loader>();
+  const { currencyCode, rows, pageInfo, collections, filters, scan } =
+    useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const fetcher = useFetcher<ActionData>();
   const shopify = useAppBridge();
@@ -127,6 +194,49 @@ export default function VariantsRoute() {
   const [edits, setEdits] = useState<EditState>(() => buildEdits(rows));
   const [percentOpen, setPercentOpen] = useState(false);
   const [percentValue, setPercentValue] = useState("10");
+
+  // Filter form state, seeded from the URL (echoed by the loader).
+  const [vendorInput, setVendorInput] = useState(filters.vendor);
+  const [collectionInput, setCollectionInput] = useState(filters.collectionId);
+  const [missingInput, setMissingInput] = useState(filters.missing);
+  const [minDiscountInput, setMinDiscountInput] = useState(filters.minDiscount);
+
+  useEffect(() => {
+    setVendorInput(filters.vendor);
+    setCollectionInput(filters.collectionId);
+    setMissingInput(filters.missing);
+    setMinDiscountInput(filters.minDiscount);
+  }, [filters]);
+
+  const applyFilters = useCallback(() => {
+    const params = new URLSearchParams();
+    if (vendorInput.trim()) params.set("vendor", vendorInput.trim());
+    if (collectionInput) params.set("collection", collectionInput);
+    if (missingInput) params.set("missing", "1");
+    if (minDiscountInput.trim() && Number(minDiscountInput) > 0) {
+      params.set("minDiscount", minDiscountInput.trim());
+    }
+    const qs = params.toString();
+    navigate(qs ? `?${qs}` : "?");
+  }, [vendorInput, collectionInput, missingInput, minDiscountInput, navigate]);
+
+  const clearFilters = useCallback(() => navigate("?"), [navigate]);
+  const hasActiveFilters =
+    Boolean(filters.vendor) ||
+    Boolean(filters.collectionId) ||
+    filters.missing ||
+    Boolean(filters.minDiscount);
+
+  const collectionOptions = useMemo(
+    () => [
+      { label: "All collections", value: "" },
+      ...collections.map((collection) => ({
+        label: collection.title,
+        value: collection.id,
+      })),
+    ],
+    [collections],
+  );
 
   const { selectedResources, allResourcesSelected, handleSelectionChange, clearSelection } =
     useIndexResourceState(rows);
@@ -237,12 +347,21 @@ export default function VariantsRoute() {
 
   const handleDiscard = useCallback(() => setEdits(buildEdits(rows)), [rows]);
 
+  // Preserve vendor/collection filters across cursor pagination.
+  const pageUrl = useCallback(
+    (param: "after" | "before", cursor: string) => {
+      const params = new URLSearchParams();
+      if (filters.vendor) params.set("vendor", filters.vendor);
+      if (filters.collectionId) params.set("collection", filters.collectionId);
+      params.set(param, cursor);
+      return `?${params.toString()}`;
+    },
+    [filters.vendor, filters.collectionId],
+  );
   const goNext = () =>
-    pageInfo.endCursor &&
-    navigate(`?after=${encodeURIComponent(pageInfo.endCursor)}`);
+    pageInfo.endCursor && navigate(pageUrl("after", pageInfo.endCursor));
   const goPrevious = () =>
-    pageInfo.startCursor &&
-    navigate(`?before=${encodeURIComponent(pageInfo.startCursor)}`);
+    pageInfo.startCursor && navigate(pageUrl("before", pageInfo.startCursor));
 
   const symbol = currencySymbol(currencyCode);
   const userErrors = fetcher.data && !fetcher.data.ok ? fetcher.data.userErrors : [];
@@ -332,6 +451,68 @@ export default function VariantsRoute() {
             </BlockStack>
           </Banner>
         )}
+
+        <Card>
+          <BlockStack gap="300">
+            <InlineGrid columns={{ xs: 1, sm: 3 }} gap="300">
+              <TextField
+                label="Vendor"
+                value={vendorInput}
+                onChange={setVendorInput}
+                autoComplete="off"
+                placeholder="e.g. Hypro"
+              />
+              <Select
+                label="Collection"
+                options={collectionOptions}
+                value={collectionInput}
+                onChange={setCollectionInput}
+              />
+              <TextField
+                label="Min discount %"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                suffix="%"
+                value={minDiscountInput}
+                onChange={setMinDiscountInput}
+                autoComplete="off"
+                placeholder="Any"
+              />
+            </InlineGrid>
+            <InlineStack gap="400" blockAlign="center">
+              <Checkbox
+                label="Missing actual price only"
+                checked={missingInput}
+                onChange={setMissingInput}
+              />
+              <InlineStack gap="200">
+                <Button variant="primary" onClick={applyFilters}>
+                  Apply filters
+                </Button>
+                {hasActiveFilters && (
+                  <Button onClick={clearFilters}>Clear</Button>
+                )}
+              </InlineStack>
+            </InlineStack>
+          </BlockStack>
+        </Card>
+
+        {scan && (
+          <Banner tone={scan.scanCapped ? "warning" : "info"}>
+            <Text as="p" variant="bodyMd">
+              {scan.matched} matching variant
+              {scan.matched === 1 ? "" : "s"} found in {scan.scanned} scanned
+              {scan.displayCapped ? `; showing the first ${rows.length}` : ""}.
+              {scan.scanCapped
+                ? " The catalog scan was capped — narrow by vendor or collection for complete results."
+                : ""}{" "}
+              Pagination is disabled while a metafield filter is active.
+            </Text>
+          </Banner>
+        )}
+
         <Card padding="0">
           {rows.length === 0 ? (
             <EmptyState
