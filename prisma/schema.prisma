@@ -5,14 +5,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
-// enough when changing adapters.
-// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
+// Required by @shopify/shopify-app-session-storage-prisma.
 model Session {
   id                  String    @id
   shop                String
@@ -31,4 +29,27 @@ model Session {
   emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+}
+
+// Tracks bulk CSV import jobs. Populated in Phase 2 (CSV import/export);
+// defined now so the schema and migrations are stable from Phase 1.
+enum CsvJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model CsvJob {
+  id           String       @id @default(uuid())
+  shopDomain   String
+  status       CsvJobStatus @default(PENDING)
+  successCount Int          @default(0)
+  errorCount   Int          @default(0)
+  // Free-form job payload (parsed rows, diff preview, error details, etc.).
+  payload      Json?
+  createdAt    DateTime     @default(now())
+  completedAt  DateTime?
+
+  @@index([shopDomain, status])
 }

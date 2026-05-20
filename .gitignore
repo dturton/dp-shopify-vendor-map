@@ -13,6 +13,9 @@ database.sqlite
 
 .env
 .env.*
+!.env.example
+
+# Prisma (Postgres) — local sqlite artifacts no longer used, kept ignored for safety
 
 
 
