@@ -1,0 +1,34 @@
+{
+  "payload": {
+    "export": "cart-transform-run",
+    "target": "cart.transform.run",
+    "input": {
+      "presentmentCurrencyRate": "1.0",
+      "cart": {
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/1",
+            "cost": { "amountPerQuantity": { "amount": "100.00" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/1",
+              "product": { "isGiftCard": false },
+              "actualPrice": { "jsonValue": { "amount": "79.99", "currency_code": "USD" } },
+              "mapEnabled": { "jsonValue": true }
+            }
+          }
+        ]
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "lineUpdate": {
+            "cartLineId": "gid://shopify/CartLine/1",
+            "price": { "adjustment": { "fixedPricePerUnit": { "amount": "79.99" } } }
+          }
+        }
+      ]
+    }
+  }
+}

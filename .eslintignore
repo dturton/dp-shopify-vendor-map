@@ -4,3 +4,6 @@ public/build
 shopify-app-remix
 */*.yml
 .shopify
+
+# Extensions have their own toolchain (Shopify CLI build + vitest) and generated code.
+extensions
