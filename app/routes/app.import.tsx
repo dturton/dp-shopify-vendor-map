@@ -22,10 +22,12 @@ import db from "../db.server";
 import { getShopCurrency, saveVariantPricing, type SaveUserError } from "../lib/metafields.server";
 import {
   buildImportPreview,
+  IMPORT_BULK_THRESHOLD,
   type ImportChange,
   type ImportRowPreview,
   type ImportSummary,
 } from "../lib/csvImport.server";
+import { pollBulkOperation, startBulkImport } from "../lib/bulkImport.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -54,12 +56,16 @@ type ActionData =
       summary: ImportSummary;
       previewCapped: boolean;
     }
+  | { step: "running"; jobId: string; total: number }
+  | { step: "status"; running: boolean; statusLabel: string }
   | { step: "done"; applied: number; userErrors: SaveUserError[] };
 
 interface StoredPayload {
   changes: ImportChange[];
   summary: ImportSummary;
   userErrors?: SaveUserError[];
+  bulkOperationId?: string;
+  total?: number;
 }
 
 export const action = async ({ request }: ActionFunctionArgs): Promise<ActionData> => {
@@ -120,6 +126,29 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<ActionDat
 
     try {
       const currencyCode = await getShopCurrency(admin);
+
+      // Large imports use bulkOperationRunMutation for the price writes; clears
+      // (delete actual_price) always go through the synchronous path.
+      if (changes.length > IMPORT_BULK_THRESHOLD) {
+        const sets = changes.filter((change) => change.actualPrice !== null);
+        const clears = changes.filter((change) => change.actualPrice === null);
+        if (clears.length > 0) {
+          await saveVariantPricing(admin, clears, currencyCode);
+        }
+        const bulkOperationId = await startBulkImport(admin, sets, currencyCode);
+        await db.csvJob.update({
+          where: { id: job.id },
+          data: {
+            payload: {
+              ...payload,
+              bulkOperationId,
+              total: changes.length,
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+        return { step: "running", jobId: job.id, total: changes.length };
+      }
+
       const result = await saveVariantPricing(admin, changes, currencyCode);
       const errorCount = result.userErrors.length;
       await db.csvJob.update({
@@ -146,6 +175,42 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<ActionDat
         message: error instanceof Error ? error.message : "Import failed.",
       };
     }
+  }
+
+  if (intent === "poll") {
+    const jobId = String(form.get("jobId") ?? "");
+    const job = await db.csvJob.findFirst({
+      where: { id: jobId, shopDomain: session.shop },
+    });
+    if (!job) return { step: "error", message: "Import job not found." };
+
+    const payload = job.payload as unknown as StoredPayload;
+    if (!payload.bulkOperationId) {
+      return { step: "status", running: false, statusLabel: job.status };
+    }
+
+    const status = await pollBulkOperation(admin, payload.bulkOperationId);
+    const label = status?.status ?? "UNKNOWN";
+
+    if (label === "COMPLETED") {
+      await db.csvJob.update({
+        where: { id: job.id },
+        data: {
+          status: "COMPLETED",
+          successCount: payload.total ?? 0,
+          completedAt: new Date(),
+        },
+      });
+      return { step: "status", running: false, statusLabel: "COMPLETED" };
+    }
+    if (label === "FAILED" || label === "CANCELED") {
+      await db.csvJob.update({
+        where: { id: job.id },
+        data: { status: "FAILED", completedAt: new Date() },
+      });
+      return { step: "status", running: false, statusLabel: label };
+    }
+    return { step: "status", running: true, statusLabel: label };
   }
 
   return { step: "error", message: "Unknown action." };
@@ -183,13 +248,20 @@ export default function ImportRoute() {
 
   const [fileName, setFileName] = useState<string | null>(null);
   const [csvText, setCsvText] = useState("");
+  const [runningJobId, setRunningJobId] = useState<string | null>(null);
 
   const data = fetcher.data;
   const isBusy = fetcher.state !== "idle";
 
   useEffect(() => {
-    if (fetcher.state === "idle" && data?.step === "done") {
+    if (fetcher.state !== "idle") return;
+    if (data?.step === "done") {
       shopify.toast.show(`Imported ${data.applied} variant${data.applied === 1 ? "" : "s"}`);
+    } else if (data?.step === "running") {
+      setRunningJobId(data.jobId);
+    } else if (data?.step === "status" && !data.running) {
+      setRunningJobId(null);
+      shopify.toast.show(`Bulk import ${data.statusLabel.toLowerCase()}`);
     }
   }, [fetcher.state, data, shopify]);
 
@@ -280,6 +352,39 @@ export default function ImportRoute() {
                       </Text>
                     ))}
                   </BlockStack>
+                </Banner>
+              )}
+
+              {runningJobId && (
+                <Banner tone="info">
+                  <BlockStack gap="200">
+                    <Text as="p" variant="bodyMd">
+                      Bulk import is running in the background
+                      {data?.step === "status" ? ` (status: ${data.statusLabel})` : ""}.
+                      Large imports may take a few minutes.
+                    </Text>
+                    <InlineStack>
+                      <Button
+                        loading={isBusy}
+                        onClick={() =>
+                          fetcher.submit(
+                            { intent: "poll", jobId: runningJobId },
+                            { method: "post" },
+                          )
+                        }
+                      >
+                        Check status
+                      </Button>
+                    </InlineStack>
+                  </BlockStack>
+                </Banner>
+              )}
+
+              {data?.step === "status" && !data.running && (
+                <Banner tone={data.statusLabel === "COMPLETED" ? "success" : "critical"}>
+                  <Text as="p" variant="bodyMd">
+                    Bulk import {data.statusLabel.toLowerCase()}.
+                  </Text>
                 </Banner>
               )}
             </BlockStack>
