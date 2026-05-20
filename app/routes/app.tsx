@@ -25,6 +25,7 @@ export default function App() {
           Home
         </Link>
         <Link to="/app/variants">Variants</Link>
+        <Link to="/app/export">Export</Link>
         <Link to="/app/settings">Settings</Link>
       </NavMenu>
       <Outlet />

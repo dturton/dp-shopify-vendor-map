@@ -307,20 +307,19 @@ interface ScanQueryData {
  * Used only when a metafield filter is active; vendor/collection narrowing keeps
  * the scan small.
  */
-export async function scanVariants(
+/** Pages forward through every variant matching `search`, up to `fetchCap`. */
+async function collectVariants(
   admin: AdminApiContext,
-  filter: VariantFilter,
-  search?: string,
-): Promise<VariantScan> {
-  const query = search && search.length > 0 ? search : null;
+  search: string | null,
+  fetchCap: number,
+): Promise<{ currencyCode: string; rows: VariantRow[]; capped: boolean }> {
   let cursor: string | null = null;
   let currencyCode = "";
-  let scanned = 0;
-  const matches: VariantRow[] = [];
+  const rows: VariantRow[] = [];
 
   for (;;) {
     const response = await admin.graphql(SCAN_QUERY, {
-      variables: { first: SCAN_PAGE_SIZE, after: cursor, query },
+      variables: { first: SCAN_PAGE_SIZE, after: cursor, query: search },
     });
     const body = (await response.json()) as { data?: ScanQueryData; errors?: unknown };
     if (!body.data) {
@@ -329,24 +328,60 @@ export async function scanVariants(
 
     currencyCode = body.data.shop.currencyCode;
     const { edges, pageInfo } = body.data.productVariants;
-    for (const { node } of edges) {
-      scanned += 1;
-      const row = mapVariantNode(node);
-      if (passesFilter(row, filter)) matches.push(row);
-    }
+    for (const { node } of edges) rows.push(mapVariantNode(node));
 
-    if (!pageInfo.hasNextPage || scanned >= SCAN_FETCH_CAP) {
-      return {
-        currencyCode,
-        rows: matches.slice(0, SCAN_DISPLAY_CAP),
-        scanned,
-        matched: matches.length,
-        scanCapped: pageInfo.hasNextPage && scanned >= SCAN_FETCH_CAP,
-        displayCapped: matches.length > SCAN_DISPLAY_CAP,
-      };
+    if (!pageInfo.hasNextPage || rows.length >= fetchCap) {
+      return { currencyCode, rows, capped: pageInfo.hasNextPage && rows.length >= fetchCap };
     }
     cursor = pageInfo.endCursor;
   }
+}
+
+export async function scanVariants(
+  admin: AdminApiContext,
+  filter: VariantFilter,
+  search?: string,
+): Promise<VariantScan> {
+  const { currencyCode, rows, capped } = await collectVariants(
+    admin,
+    search && search.length > 0 ? search : null,
+    SCAN_FETCH_CAP,
+  );
+  const matches = rows.filter((row) => passesFilter(row, filter));
+  return {
+    currencyCode,
+    rows: matches.slice(0, SCAN_DISPLAY_CAP),
+    scanned: rows.length,
+    matched: matches.length,
+    scanCapped: capped,
+    displayCapped: matches.length > SCAN_DISPLAY_CAP,
+  };
+}
+
+/** Upper bound on variants pulled for a CSV export. */
+const EXPORT_FETCH_CAP = 10000;
+
+export interface ExportResult {
+  currencyCode: string;
+  rows: VariantRow[];
+  /** True if the catalog exceeded EXPORT_FETCH_CAP (export is incomplete). */
+  capped: boolean;
+}
+
+/** Reads variants for CSV export, honoring the same filters as the table view. */
+export async function getVariantsForExport(
+  admin: AdminApiContext,
+  options: { search?: string; filter?: VariantFilter } = {},
+): Promise<ExportResult> {
+  const { currencyCode, rows, capped } = await collectVariants(
+    admin,
+    options.search && options.search.length > 0 ? options.search : null,
+    EXPORT_FETCH_CAP,
+  );
+  const filtered = options.filter
+    ? rows.filter((row) => passesFilter(row, options.filter as VariantFilter))
+    : rows;
+  return { currencyCode, rows: filtered, capped };
 }
 
 const COLLECTIONS_QUERY = `#graphql
