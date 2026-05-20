@@ -41,10 +41,15 @@ sprayer-vendor-map/
 │   ├── shopify.server.ts       # shopifyApp(): SingleMerchant distribution
 │   ├── db.server.ts
 │   ├── lib/
-│   │   └── metafields.server.ts  # $app namespace/keys + getVariantsPage()
+│   │   ├── metafields.server.ts  # $app keys, read/scan/export, metafieldsSet/Delete
+│   │   ├── csv.server.ts         # CSV (de)serialize + export builder
+│   │   ├── csvImport.server.ts   # parse/validate/diff import rows
+│   │   └── bulkImport.server.ts  # >200-row bulkOperationRunMutation path
 │   └── routes/
 │       ├── app._index.tsx        # overview
-│       ├── app.variants.tsx      # Phase 1: read-only variant list
+│       ├── app.variants.tsx      # editable variant list (inline + bulk actions)
+│       ├── app.import.tsx        # CSV import (preview → confirm)
+│       ├── app.export.tsx        # CSV export
 │       ├── app.settings.tsx
 │       ├── webhooks.app.uninstalled.tsx
 │       ├── webhooks.app.scopes_update.tsx
@@ -181,15 +186,41 @@ Read-only foundation:
 - [x] GDPR + uninstall webhooks
 - [x] Read-only variants `IndexTable` (50/page, cursor pagination)
 
-## Phase 2 — bulk admin UI (TODO)
+## Phase 2 — bulk admin UI — done
 
-- [ ] Inline-editable cells: `actual_price` input + `map_enabled` toggle
-- [ ] Bulk save via `metafieldsSet` (chunk to **25 per call**)
-- [ ] Filters: vendor, collection, "missing actual_price", "discount > X%"
-- [ ] Bulk actions: apply X% off MAP, clear actual_price, copy MAP → actual_price
-- [ ] CSV import (preview diff → confirm; `bulkOperationRunMutation` JSONL for
-      >200 rows; track via `CsvJob`)
-- [ ] CSV export: variant id, SKU, vendor, MAP, actual_price, computed % off
+- [x] Inline-editable cells: `actual_price` input + `map_enabled` toggle, with
+      dirty-tracking and Save/Discard
+- [x] Bulk save via `metafieldsSet` / `metafieldsDelete` (chunked to **25 per call**)
+- [x] Filters: vendor, collection, missing `actual_price`, discount ≥ X%
+- [x] Bulk actions: apply X% off MAP, clear `actual_price`, copy MAP → `actual_price`
+- [x] CSV import (preview diff → confirm; `bulkOperationRunMutation` JSONL for
+      >200 rows; tracked via `CsvJob`)
+- [x] CSV export: variant id, SKU, vendor, MAP, actual_price, computed % off
+
+### Behavior notes
+
+- **Variants (`/app/variants`)** — edit `actual_price` (money) and `map_enabled`
+  inline; **Save** writes changed rows only. Select rows for bulk actions
+  (**Apply % off MAP**, **Copy MAP → actual**, **Clear actual price**); these
+  *stage* edits for review, then **Save** commits.
+- **Filters** — `vendor`/`collection` are filtered server-side (and survive
+  pagination). `missing actual_price` and `discount ≥ X%` can't be searched
+  server-side, so they run a **bounded catalog scan** (fetch cap 2,000, display
+  cap 250), narrowed by any vendor/collection filter; pagination is disabled in
+  scan mode. Narrow by vendor/collection for very large catalogs.
+- **CSV export (`/app/export`)** — honors the same filters; the file downloads
+  client-side (Blob) to work inside the embedded admin. Catalog fetch cap 10,000.
+- **CSV import (`/app/import`)** — match key is **`variant_id`** (the export GID).
+  `actual_price` blank ⇒ clears it. `map_enabled` is optional: if the column is
+  absent it's derived (a price enables MAP, a blank disables). You preview a diff
+  before anything is written; only changed rows are applied. ≤ 200 rows write
+  synchronously via `metafieldsSet`; **> 200 rows** use `bulkOperationRunMutation`
+  (staged JSONL upload) and finish in the background — use **Check status** to
+  finalize. Jobs are tracked in the `CsvJob` table (see **Recent imports**).
+
+> **Not yet verified on a live store:** the large-import bulk path
+> (staged upload + `bulkOperationRunMutation` + poll) is implemented to Shopify's
+> docs but could not be exercised in development. Test it against the real store.
 
 ## Phase 3 — Cart Transform Function (TODO)
 
