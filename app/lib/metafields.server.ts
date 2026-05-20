@@ -205,3 +205,171 @@ export async function getVariantsPage(
 
   return { currencyCode: shop.currencyCode, rows, pageInfo: productVariants.pageInfo };
 }
+
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
+
+/** Both metafieldsSet and metafieldsDelete cap at 25 entries per call. */
+const METAFIELDS_BATCH_MAX = 25;
+
+export interface VariantPricingInput {
+  variantId: string;
+  /** Amount string ("12.99") to set, or null/"" to clear (delete the metafield). */
+  actualPrice: string | null;
+  mapEnabled: boolean;
+}
+
+export interface SaveUserError {
+  field: string[] | null;
+  message: string;
+}
+
+export interface SaveResult {
+  /** Number of variants whose changes were submitted. */
+  variantsSaved: number;
+  userErrors: SaveUserError[];
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
+/** Coerce a user-entered amount to a 2-decimal string; leave unparseable input as-is. */
+export function normalizeAmount(raw: string): string {
+  const value = Number(raw);
+  return Number.isFinite(value) ? value.toFixed(2) : raw.trim();
+}
+
+const SHOP_CURRENCY_QUERY = `#graphql
+  query ShopCurrency {
+    shop {
+      currencyCode
+    }
+  }
+`;
+
+export async function getShopCurrency(admin: AdminApiContext): Promise<string> {
+  const response = await admin.graphql(SHOP_CURRENCY_QUERY);
+  const body = (await response.json()) as {
+    data?: { shop: { currencyCode: string } };
+  };
+  if (!body.data) throw new Error("Unable to read shop currency");
+  return body.data.shop.currencyCode;
+}
+
+const SET_METAFIELDS_MUTATION = `#graphql
+  mutation SetVariantMetafields($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const DELETE_METAFIELDS_MUTATION = `#graphql
+  mutation DeleteVariantMetafields($metafields: [MetafieldIdentifierInput!]!) {
+    metafieldsDelete(metafields: $metafields) {
+      deletedMetafields {
+        key
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+interface MetafieldSetEntry {
+  ownerId: string;
+  namespace: string;
+  key: string;
+  type: string;
+  value: string;
+}
+
+interface MetafieldDeleteEntry {
+  ownerId: string;
+  namespace: string;
+  key: string;
+}
+
+/**
+ * Persists per-variant MAP pricing. `map_enabled` is always written for each
+ * input; `actual_price` (a money metafield, currency must match the shop) is set
+ * when an amount is given, or deleted when blank/null. Writes are chunked to the
+ * 25-per-call cap. compareAtPrice is never touched.
+ */
+export async function saveVariantPricing(
+  admin: AdminApiContext,
+  inputs: VariantPricingInput[],
+  currencyCode: string,
+): Promise<SaveResult> {
+  const setEntries: MetafieldSetEntry[] = [];
+  const deleteEntries: MetafieldDeleteEntry[] = [];
+
+  for (const input of inputs) {
+    setEntries.push({
+      ownerId: input.variantId,
+      namespace: APP_METAFIELD_NAMESPACE,
+      key: MAP_ENABLED_KEY,
+      type: "boolean",
+      value: input.mapEnabled ? "true" : "false",
+    });
+
+    const hasAmount =
+      input.actualPrice !== null && input.actualPrice.trim() !== "";
+
+    if (hasAmount) {
+      setEntries.push({
+        ownerId: input.variantId,
+        namespace: APP_METAFIELD_NAMESPACE,
+        key: ACTUAL_PRICE_KEY,
+        type: "money",
+        value: JSON.stringify({
+          amount: normalizeAmount(input.actualPrice as string),
+          currency_code: currencyCode,
+        }),
+      });
+    } else {
+      deleteEntries.push({
+        ownerId: input.variantId,
+        namespace: APP_METAFIELD_NAMESPACE,
+        key: ACTUAL_PRICE_KEY,
+      });
+    }
+  }
+
+  const userErrors: SaveUserError[] = [];
+
+  for (const batch of chunk(setEntries, METAFIELDS_BATCH_MAX)) {
+    const response = await admin.graphql(SET_METAFIELDS_MUTATION, {
+      variables: { metafields: batch },
+    });
+    const body = (await response.json()) as {
+      data?: { metafieldsSet: { userErrors: SaveUserError[] } };
+    };
+    userErrors.push(...(body.data?.metafieldsSet.userErrors ?? []));
+  }
+
+  // Deleting a non-existent metafield is a no-op (no userError), so it is safe
+  // to delete actual_price for variants that never had one.
+  for (const batch of chunk(deleteEntries, METAFIELDS_BATCH_MAX)) {
+    const response = await admin.graphql(DELETE_METAFIELDS_MUTATION, {
+      variables: { metafields: batch },
+    });
+    const body = (await response.json()) as {
+      data?: { metafieldsDelete: { userErrors: SaveUserError[] } };
+    };
+    userErrors.push(...(body.data?.metafieldsDelete.userErrors ?? []));
+  }
+
+  return { variantsSaved: inputs.length, userErrors };
+}
