@@ -1,0 +1,30 @@
+query CartTransformRunInput {
+  # Rate to convert shop-currency amounts (the metafields) into the cart's
+  # presentment currency. fixedPricePerUnit.amount must be in presentment currency.
+  presentmentCurrencyRate
+  cart {
+    lines {
+      id
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          product {
+            isGiftCard
+          }
+          actualPrice: metafield(namespace: "$app", key: "actual_price") {
+            jsonValue
+          }
+          mapEnabled: metafield(namespace: "$app", key: "map_enabled") {
+            jsonValue
+          }
+        }
+      }
+    }
+  }
+}

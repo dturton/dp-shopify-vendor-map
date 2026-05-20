@@ -1,0 +1,21 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "cart-transform"
+type = "function"
+uid = "723515e5-bc2e-45c6-6942-564c29099db8e998c0bc"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.transform.run"
+  input_query = "src/cart_transform_run.graphql"
+  export = "cart-transform-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/"
+  details = "/"

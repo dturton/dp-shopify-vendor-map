@@ -1,15 +1,19 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useEffect } from "react";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
+import { useFetcher, useLoaderData } from "@remix-run/react";
 import {
+  Badge,
   BlockStack,
+  Button,
   Card,
   DescriptionList,
+  InlineStack,
   Layout,
   Link,
   Page,
   Text,
 } from "@shopify/polaris";
-import { TitleBar } from "@shopify/app-bridge-react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
 import {
@@ -17,21 +21,48 @@ import {
   APP_METAFIELD_NAMESPACE,
   MAP_ENABLED_KEY,
 } from "../lib/metafields.server";
+import { ensureCartTransform, getCartTransformId } from "../lib/cartTransform.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   return {
     shop: session.shop,
     scope: session.scope ?? "",
     namespace: APP_METAFIELD_NAMESPACE,
     actualPriceKey: ACTUAL_PRICE_KEY,
     mapEnabledKey: MAP_ENABLED_KEY,
+    cartTransformActive: (await getCartTransformId(admin)) !== null,
   };
 };
 
+interface ActionData {
+  ok: boolean;
+  message: string;
+}
+
+export const action = async ({
+  request,
+}: ActionFunctionArgs): Promise<ActionData> => {
+  const { admin } = await authenticate.admin(request);
+  const result = await ensureCartTransform(admin);
+  return result.ok
+    ? { ok: true, message: result.created ? "Cart transform activated." : "Cart transform already active." }
+    : { ok: false, message: result.message };
+};
+
 export default function SettingsRoute() {
-  const { shop, scope, namespace, actualPriceKey, mapEnabledKey } =
+  const { shop, scope, namespace, actualPriceKey, mapEnabledKey, cartTransformActive } =
     useLoaderData<typeof loader>();
+  const fetcher = useFetcher<ActionData>();
+  const shopify = useAppBridge();
+
+  const isActivating = fetcher.state !== "idle";
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok) {
+      shopify.toast.show(fetcher.data.message);
+    }
+  }, [fetcher.state, fetcher.data, shopify]);
 
   return (
     <Page>
@@ -53,6 +84,44 @@ export default function SettingsRoute() {
                   },
                 ]}
               />
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="center">
+                <Text as="h2" variant="headingMd">
+                  Cart Transform Function
+                </Text>
+                {cartTransformActive ? (
+                  <Badge tone="success">Active</Badge>
+                ) : (
+                  <Badge tone="attention">Not active</Badge>
+                )}
+              </InlineStack>
+              <Text as="p" variant="bodyMd" tone="subdued">
+                Swaps the advertised MAP for <code>actual_price</code> once items
+                are in the cart. Activation is idempotent (one per shop) and runs
+                automatically after install; use the button if it isn&apos;t
+                active yet. The function must be deployed (<code>shopify app
+                deploy</code>) first. Price overrides require a Shopify Plus plan.
+              </Text>
+              <InlineStack gap="200">
+                <Button
+                  loading={isActivating}
+                  disabled={cartTransformActive || isActivating}
+                  onClick={() => fetcher.submit({}, { method: "post" })}
+                >
+                  {cartTransformActive ? "Active" : "Activate cart transform"}
+                </Button>
+              </InlineStack>
+              {fetcher.data && !fetcher.data.ok && (
+                <Text as="p" variant="bodySm" tone="critical">
+                  {fetcher.data.message}
+                </Text>
+              )}
             </BlockStack>
           </Card>
         </Layout.Section>
