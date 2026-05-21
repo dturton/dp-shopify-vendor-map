@@ -1,5 +1,5 @@
 {
-  "name": "sprayer-vendor-map",
+  "name": "vendor-map-app",
   "private": true,
   "scripts": {
     "build": "remix vite:build",

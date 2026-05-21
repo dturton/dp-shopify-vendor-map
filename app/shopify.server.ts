@@ -16,8 +16,8 @@ const shopify = shopifyApp({
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
-  // Custom app, installed on a single store (Sprayer Depot) via a Partners
-  // custom-distribution link. Not App Store, no billing API.
+  // Custom app, installed on a single store via a Partners custom-distribution
+  // link. Not App Store, no billing API.
   distribution: AppDistribution.SingleMerchant,
   future: {
     unstable_newEmbeddedAuthStrategy: true,
