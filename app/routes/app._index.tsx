@@ -22,7 +22,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function Index() {
   return (
     <Page>
-      <TitleBar title="Sprayer Depot — Vendor MAP Pricing" />
+      <TitleBar title="Vendor MAP Pricing" />
       <Layout>
         <Layout.Section>
           <Card>

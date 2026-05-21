@@ -1,4 +1,4 @@
-# Fly.io configuration for the Sprayer Depot Vendor MAP app.
+# Fly.io configuration for the Vendor MAP app.
 #
 # Not deployed yet — provided so hosting is Fly-ready. Before `fly deploy`:
 #   1. Set `app` below (or run `fly launch --no-deploy` to generate it).
@@ -11,7 +11,7 @@
 #   4. Point the app's application_url / redirect URLs (shopify.app.toml) at the
 #      Fly URL and `shopify app deploy`.
 
-app = "sprayer-vendor-map"
+app = "vendor-map-app"
 primary_region = "iad"
 
 [build]

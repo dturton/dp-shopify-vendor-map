@@ -1,7 +1,7 @@
-# Sprayer Depot — Vendor MAP Pricing
+# Vendor MAP Pricing
 
-A Shopify **custom app** for Sprayer Depot that manages **Minimum Advertised
-Price (MAP)** compliance. Admins manage a per-variant *actual price*; a Cart
+A Shopify **custom app** that manages **Minimum Advertised
+Price (MAP)** compliance for a single merchant. Admins manage a per-variant *actual price*; a Cart
 Transform Function (Phase 3) swaps the advertised MAP for the lower actual price
 once an item is in the cart — so the storefront keeps showing the MAP while the
 customer is charged less at checkout.
@@ -31,7 +31,7 @@ customer is charged less at checkout.
 ## Repo layout
 
 ```
-sprayer-vendor-map/
+vendor-map-app/
 ├── shopify.app.toml            # scopes, webhooks, app-owned metafield definitions
 ├── shopify.web.toml
 ├── fly.toml                    # Fly.io config (not deployed yet)
@@ -86,7 +86,7 @@ in the Shopify admin.
 
 - Node `>=20.19 <22 || >=22.12` (CI/Docker use Node 22)
 - A PostgreSQL database (local for dev; Fly Postgres / managed PG for prod)
-- A Shopify Partner account with access to the Sprayer Depot store
+- A Shopify Partner account with access to the merchant's store
 - `@shopify/cli` (bundled as a dependency; `npm run shopify`)
 
 ## Environment variables
@@ -109,8 +109,8 @@ Copy `.env.example` → `.env` and fill in. `.env` is gitignored.
 1. **Start Postgres.** For example, with Docker:
 
    ```bash
-   docker run --name sprayer-pg -e POSTGRES_PASSWORD=postgres \
-     -e POSTGRES_DB=sprayer_vendor_map -p 5432:5432 -d postgres:16
+   docker run --name vendor-map-pg -e POSTGRES_PASSWORD=postgres \
+     -e POSTGRES_DB=vendor_map -p 5432:5432 -d postgres:16
    ```
 
    Then set `DATABASE_URL` in `.env` (see `.env.example`).
@@ -142,12 +142,12 @@ Copy `.env.example` → `.env` and fill in. `.env` is gitignored.
 | `npm run setup`      | `prisma generate && migrate deploy`   |
 | `npm run deploy`     | `shopify app deploy` (config + extensions) |
 
-## Installing on Sprayer Depot's store (custom distribution)
+## Installing on the merchant's store (custom distribution)
 
 This is a **custom app** (single merchant), not an App Store listing.
 
 1. In the **Partner Dashboard** → the app → **Distribution**, choose **Custom
-   distribution** and enter the Sprayer Depot store domain.
+   distribution** and enter the merchant's store domain.
 2. Generate the **install link** and open it as a store admin to install.
 3. On install, the app requests `read_products,write_products`, and the metafield
    definitions are created (via `shopify app deploy` of the config).
@@ -173,8 +173,8 @@ Then update `application_url` / redirect URLs to the Fly URL and run
 ## Cart Transform caveats (Phase 3)
 
 - **Shopify Plus required** for the price override. `lineUpdate` (price `update`)
-  operations only apply on stores on the Shopify Plus plan — confirm Sprayer
-  Depot's plan. The function still installs/activates on non-Plus; it just won't
+  operations only apply on stores on the Shopify Plus plan — confirm the
+  store's plan. The function still installs/activates on non-Plus; it just won't
   change prices.
 - Cart Transform only affects **customer-facing carts**. **Draft Orders** and
   admin-created orders are **not** transformed — this is a platform limitation,
