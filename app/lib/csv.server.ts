@@ -4,13 +4,22 @@ import { discountPercent, type VariantRow } from "./metafields.server";
  * CSV helpers for MAP pricing import/export.
  *
  * Export/import use the variant GID as the match key (see app.import.tsx).
- * Columns: variant_id, sku, vendor, map_price, actual_price, discount_percent.
+ * Columns: variant_id, product_title, variant_title, sku, vendor, map_price,
+ * compare_at_price, actual_price, discount_percent.
+ *
+ * product_title / variant_title / compare_at_price are export-only context
+ * columns (compare_at_price is Shopify's native variant.compareAtPrice, which
+ * this app reads but never writes). Import ignores any column it doesn't use, so
+ * an exported file round-trips cleanly.
  */
 export const CSV_HEADERS = [
   "variant_id",
+  "product_title",
+  "variant_title",
   "sku",
   "vendor",
   "map_price",
+  "compare_at_price",
   "actual_price",
   "discount_percent",
 ] as const;
@@ -75,9 +84,12 @@ export function buildExportCsv(rows: VariantRow[]): string {
     const pct = discountPercent(row);
     data.push([
       row.id,
+      row.productTitle,
+      row.variantTitle,
       row.sku ?? "",
       row.vendor ?? "",
       row.mapPrice,
+      row.compareAtPrice ?? "",
       row.actualPrice ?? "",
       pct === null ? "" : pct.toFixed(2),
     ]);

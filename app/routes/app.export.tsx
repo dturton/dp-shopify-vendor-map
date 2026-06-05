@@ -28,7 +28,7 @@ import { buildExportCsv } from "../lib/csv.server";
 // Mirrors CSV_HEADERS in csv.server (kept here so the client bundle never
 // imports the server-only csv module).
 const EXPORT_COLUMNS =
-  "variant_id, sku, vendor, map_price, actual_price, discount_percent";
+  "variant_id, product_title, variant_title, sku, vendor, map_price, compare_at_price, actual_price, discount_percent";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);

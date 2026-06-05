@@ -30,6 +30,8 @@ export interface VariantRow {
   imageAlt: string;
   /** Advertised MAP — the raw amount string from variant.price (e.g. "129.99"). */
   mapPrice: string;
+  /** Shopify's native compare-at ("was") price (variant.compareAtPrice), or null if unset. */
+  compareAtPrice: string | null;
   /** Charged price from the actual_price money metafield, or null if unset. */
   actualPrice: string | null;
   /** Currency of actual_price; falls back to shop currency when unset. */
@@ -55,6 +57,7 @@ const VARIANT_NODE_FIELDS = `
   title
   sku
   price
+  compareAtPrice
   image {
     url
     altText
@@ -133,6 +136,7 @@ interface VariantNode {
   title: string;
   sku: string | null;
   price: string;
+  compareAtPrice: string | null;
   image: ImageNode | null;
   product: {
     title: string;
@@ -193,6 +197,7 @@ function mapVariantNode(node: VariantNode): VariantRow {
       node.product.featuredImage?.altText ??
       node.product.title,
     mapPrice: node.price,
+    compareAtPrice: emptyToNull(node.compareAtPrice),
     actualPrice: actual?.amount ?? null,
     actualPriceCurrency: actual?.currency ?? null,
     mapEnabled: asBoolean(node.mapEnabled?.jsonValue),
