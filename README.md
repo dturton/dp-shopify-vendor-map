@@ -99,7 +99,7 @@ Copy `.env.example` → `.env` and fill in. `.env` is gitignored.
 | `SHOPIFY_API_KEY`     | dev: no  | Injected by `shopify app dev`. Set manually in production.            |
 | `SHOPIFY_API_SECRET`  | dev: no  | Injected by `shopify app dev`. Set manually in production.            |
 | `SHOPIFY_APP_URL`     | dev: no  | Injected by `shopify app dev`. Set to the Fly URL in production.      |
-| `SCOPES`              | yes\*    | `read_products,write_products` (must match `shopify.app.toml`).       |
+| `SCOPES`              | yes\*    | Must match `shopify.app.toml` (products + cart_transforms).           |
 | `SHOP_CUSTOM_DOMAIN`  | no       | Optional custom shop domain for local testing.                        |
 
 \* The CLI injects `SCOPES` during `dev`; set it yourself when self-hosting.
@@ -149,8 +149,8 @@ This is a **custom app** (single merchant), not an App Store listing.
 1. In the **Partner Dashboard** → the app → **Distribution**, choose **Custom
    distribution** and enter the merchant's store domain.
 2. Generate the **install link** and open it as a store admin to install.
-3. On install, the app requests `read_products,write_products`, and the metafield
-   definitions are created (via `shopify app deploy` of the config).
+3. On install, the app requests its scopes (products + cart_transforms), and the
+   metafield definitions are created (via `shopify app deploy` of the config).
 4. Verify under **Settings → Custom data → Variants** that `Actual price` and
    `MAP enabled` definitions exist.
 
@@ -163,7 +163,8 @@ fly launch --no-deploy            # or reuse the included fly.toml
 fly postgres create
 fly postgres attach <pg-app>      # sets DATABASE_URL
 fly secrets set SHOPIFY_API_KEY=... SHOPIFY_API_SECRET=... \
-  SHOPIFY_APP_URL=https://<app>.fly.dev SCOPES=read_products,write_products
+  SHOPIFY_APP_URL=https://<app>.fly.dev \
+  SCOPES=read_products,write_products,read_cart_transforms,write_cart_transforms
 fly deploy                        # release_command runs `prisma migrate deploy`
 ```
 
@@ -194,7 +195,7 @@ Then update `application_url` / redirect URLs to the Fly URL and run
 
 Read-only foundation:
 
-- [x] Remix + TS scaffold, `read_products,write_products`, SingleMerchant
+- [x] Remix + TS scaffold, product + cart_transform scopes, SingleMerchant
 - [x] Postgres Prisma schema (`Session`, `CsvJob`)
 - [x] App-owned variant metafield definitions (`$app`, declarative TOML)
 - [x] GDPR + uninstall webhooks

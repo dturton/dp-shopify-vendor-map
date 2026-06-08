@@ -5,16 +5,16 @@
 
 client_id = "ebb28b4dd7e0d36afb421a640621992b"
 name = "vendor-map-app"
-application_url = "https://example.com"
+application_url = "https://vendor-map-price-app.fly.dev"
 embedded = true
 
 [access_scopes]
-# Read the catalog to list variants; write to update actual_price / map_enabled metafields.
-# The Cart Transform Function declares its own access in extensions/cart-transform (Phase 3).
-scopes = "read_products,write_products"
+# read/write_products: list variants + update actual_price / map_enabled metafields.
+# read/write_cart_transforms: list + create the cart transform (activation).
+scopes = "read_products,write_products,read_cart_transforms,write_cart_transforms"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://vendor-map-price-app.fly.dev/auth/callback", "https://vendor-map-price-app.fly.dev/api/auth" ]
 
 [webhooks]
 api_version = "2026-07"
@@ -42,29 +42,23 @@ api_version = "2026-07"
   compliance_topics = [ "shop/redact" ]
 
 # ---------------------------------------------------------------------------
-# App-owned (declarative) metafield definitions.
+# App-owned variant metafield definitions are intentionally NOT declared here.
 #
-# The `app` segment is Shopify's reserved namespace and resolves to `$app`
-# (`app--{id}`) at runtime — this is what grants the Cart Transform Function
-# implicit read access. TOML cannot express a sub-namespace (e.g. `$app:vendor_map`),
-# so the namespace is the bare `$app` with the keys below.
+# `shopify app deploy` does not install `[variant.metafields.app.*]` blocks — the
+# CLI silently ignores them (verified on a live store: the app's metafield *values*
+# persisted, but the definitions never registered and showed as "Unstructured").
+# They are created at runtime instead: app/lib/metafieldDefinitions.server.ts, run
+# from afterAuth + a Settings button, or scripts/register-metafield-definitions.mjs.
 #
-# `variant` maps to MetafieldOwnerType PRODUCTVARIANT.
-# These are installed/updated on `shopify app deploy` (and on dev sync).
+# The definitions live in the reserved `$app` namespace (`app--{id}`, which grants
+# the Cart Transform Function implicit read access), ownerType PRODUCTVARIANT:
+# keys `actual_price` (money) and `map_enabled` (boolean).
+# Access: `actual_price` is admin-only (merchant_read_write) — the real price must
+# NEVER reach the storefront (MAP compliance). `map_enabled` is additionally
+# storefront-readable (PUBLIC_READ) so the `map-price-notice` theme app extension
+# can detect MAP variants in Liquid (`variant.metafields.app.map_enabled`).
 # Note: `variant.price` IS the MAP — we do not duplicate it as a metafield.
 # ---------------------------------------------------------------------------
-
-[variant.metafields.app.actual_price]
-name = "Actual price"
-description = "Charged price after the cart transform (the actual, lower price). variant.price stays the advertised MAP."
-type = "money"
-access.admin = "merchant_read_write"
-
-[variant.metafields.app.map_enabled]
-name = "MAP enabled"
-description = "Per-variant kill switch. When true (and actual_price < MAP), the cart transform applies the lower price."
-type = "boolean"
-access.admin = "merchant_read_write"
 
 [build]
 include_config_on_deploy = true

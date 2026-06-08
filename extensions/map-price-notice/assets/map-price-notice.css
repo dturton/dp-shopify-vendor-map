@@ -1,0 +1,113 @@
+.map-notice {
+  --map-badge-bg: #c0392b;
+  --map-badge-color: #ffffff;
+  --map-accent: #c0392b;
+  margin: 0.75rem 0;
+  font-size: var(--map-font-size, 1.05rem);
+  line-height: 1.4;
+}
+
+.map-notice[hidden] {
+  display: none;
+}
+
+.map-notice--boxed {
+  background: var(--map-box-bg, #f6f7f9);
+  border: 1px solid var(--map-box-border, #e3e6ea);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+}
+
+.map-notice__row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.map-notice__badge {
+  display: inline-block;
+  background: var(--map-badge-bg);
+  color: var(--map-badge-color);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.3em 0.8em;
+  border-radius: 4px;
+  font-size: 1.2em;
+}
+
+.map-notice__info {
+  position: relative;
+  display: inline-flex;
+}
+
+.map-notice__info-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: var(--map-accent);
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: 0.8em;
+  line-height: 1;
+  cursor: help;
+}
+
+.map-notice__info-content {
+  display: none;
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  width: max-content;
+  max-width: 16rem;
+  padding: 0.6rem 0.75rem;
+  background: #1f1f1f;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-style: normal;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+
+.map-notice__info-toggle:hover + .map-notice__info-content,
+.map-notice__info-toggle:focus + .map-notice__info-content,
+.map-notice__info-toggle:focus-visible + .map-notice__info-content {
+  display: block;
+}
+
+.map-notice__price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.map-notice__label {
+  color: var(--map-accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.9em;
+}
+
+.map-notice__price {
+  font-weight: 700;
+  font-size: 1.5em;
+}
+
+.map-notice__disclaimer {
+  margin: 0.4rem 0 0;
+  color: #555;
+  font-size: 0.9em;
+}

@@ -7,3 +7,6 @@ shopify-app-remix
 
 # Extensions have their own toolchain (Shopify CLI build + vitest) and generated code.
 extensions
+
+# One-off ops scripts (plain Node .mjs, run with `node --env-file`).
+scripts

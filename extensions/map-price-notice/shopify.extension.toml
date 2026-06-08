@@ -1,0 +1,10 @@
+api_version = "2026-04"
+uid = "96b2045b-37c6-798a-fc03-89a39e80fcd412fc35a5"
+
+# Theme app extension: renders the storefront MAP / "list price — see price in
+# cart" notice on the product page. The merchant adds the "MAP price notice" app
+# block to the product template in the theme editor.
+[[extensions]]
+type = "theme"
+name = "map-price-notice"
+handle = "map-price-notice"

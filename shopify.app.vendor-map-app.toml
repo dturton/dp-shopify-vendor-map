@@ -1,0 +1,21 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "aacce8fa1086efa1e4c71e7f254700b0"
+application_url = "https://vendor-map-price-app.fly.dev"
+embedded = true
+name = "vendor-map-app"
+
+[webhooks]
+api_version = "2026-07"
+
+[access_scopes]
+# read/write_products: list variants + update actual_price / map_enabled metafields.
+# read/write_cart_transforms: list + create the cart transform (activation).
+scopes = "read_products,write_products,read_cart_transforms,write_cart_transforms"
+
+
+[auth]
+redirect_urls = [ "https://vendor-map-price-app.fly.dev/auth/callback", "https://vendor-map-price-app.fly.dev/api/auth" ]
+
+[build]
+automatically_update_urls_on_dev = true
