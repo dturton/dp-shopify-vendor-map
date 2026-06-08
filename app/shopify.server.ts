@@ -7,6 +7,7 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { ensureCartTransform } from "./lib/cartTransform.server";
+import { ensureMetafieldDefinitions } from "./lib/metafieldDefinitions.server";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -24,10 +25,24 @@ const shopify = shopifyApp({
     expiringOfflineAccessTokens: true,
   },
   hooks: {
-    // Best-effort activation of the Cart Transform on install/re-install. It is
-    // idempotent and no-ops if the function isn't deployed yet; the Settings
-    // page exposes a manual "Activate" fallback. Never block auth on failure.
+    // Best-effort setup on install/re-install. Both steps are idempotent and the
+    // Settings page exposes manual fallbacks; never block auth on failure.
     afterAuth: async ({ admin }) => {
+      // Register the app-owned variant metafield definitions. `shopify app deploy`
+      // does NOT install the shopify.app.toml [variant.metafields.app.*] blocks, so
+      // they must be created at runtime or they only ever exist as "unstructured"
+      // values. See lib/metafieldDefinitions.server.ts.
+      try {
+        const defs = await ensureMetafieldDefinitions(admin);
+        if (!defs.ok) {
+          console.log(`[metafield-defs] not fully registered: ${defs.errors.join("; ")}`);
+        }
+      } catch (error) {
+        console.error("[metafield-defs] registration error", error);
+      }
+
+      // Activate the Cart Transform. Idempotent; no-ops if the function isn't
+      // deployed yet (the Settings page has a manual "Activate" fallback).
       try {
         const result = await ensureCartTransform(admin);
         if (!result.ok) {
